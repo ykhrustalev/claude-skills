@@ -78,6 +78,12 @@ Apply when the diff touches `.rs` files.
 - The order matters: don't jump to `#[rstest]` while tests are still duplicated. Conveyor first, `rstest` as the polish layer.
 - For each suggestion: cite the file, show the `#[rstest]` + `#[case]` (or `#[fixture]`) rewrite, and keep the `Result`-returning signature from R2.
 
+### R5. Custom errors — suggest `thiserror` *only* if already a dependency
+- Check `Cargo.toml` / workspace `Cargo.toml` (including `[workspace.dependencies]`) for `thiserror`. If absent, **do not suggest it** — never recommend adding a new dependency.
+- If `thiserror` is available, flag custom error types in the diff that hand-roll `impl std::error::Error`, `impl Display`, or `impl From<...>` boilerplate that `#[derive(thiserror::Error)]` plus `#[error("...")]` / `#[from]` would generate.
+- Also flag ad-hoc error patterns that should become a typed error: `Box<dyn Error>` in library/internal APIs (tests are exempt per R2), stringly-typed errors (`String`, `&'static str`, `anyhow::anyhow!("...")` in non-application code), or enums missing `#[from]` conversions that force manual `map_err` at every call site.
+- For each occurrence: cite the file/line, show the `#[derive(thiserror::Error, Debug)]` rewrite with appropriate `#[error("...")]` messages and `#[from]` attributes, and note which manual impls or `map_err` calls collapse away.
+
 ---
 
 ## Bash-specific rules
