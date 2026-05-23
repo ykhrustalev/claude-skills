@@ -58,9 +58,31 @@ Apply when the diff touches `.rs` files.
 > **Never propose `panic!()`, `unwrap()`, `expect()`, `todo!()`, or `unreachable!()` as a fix.** Not in production code, not in tests, not in match arms, not "to handle the unhandled variant". If a variant is genuinely unreachable, prove it via the type system (refactor the enum, use `#[non_exhaustive]` deliberately, or split into a narrower type). If it's reachable, return a `Result` with a typed error. The review must steer code *away from* panicking constructs, never toward them.
 
 ### R1. Iteration style — no raw `for` loops
-- Flag any `for` loop that could be expressed with `.iter()` / `.into_iter()` / `.iter_mut()` plus combinators (`map`, `filter`, `fold`, `collect`, `try_fold`, `flat_map`, etc.).
-- Exceptions: loops with early `break`/`return` that don't map cleanly to combinators, side-effectful loops where a functional rewrite is meaningfully less clear, or hot paths where the iterator form is provably worse.
-- For each occurrence: cite the line, show the iterator-based rewrite, and note any allocation/perf implications.
+- **Default: flag every `for` loop in the diff.** Walk the diff and list each one — do not pre-filter based on whether the rewrite "feels cleaner". Showing the rewrite is the point; the reader decides.
+- For each loop, identify the pattern in the body and propose the matching combinator. Use this table — pick the most specific match, not just `for_each`:
+  - **Accumulating into a variable** (`let mut acc = init; for x in xs { acc = f(acc, x); }`) → `xs.iter().fold(init, f)`. With `?` inside → `try_fold`.
+  - **Summing / counting / producing a single number** → `.sum()` / `.count()` / `.product()` (don't reach for `fold` when a named reducer exists).
+  - **Building a new collection** (`let mut v = Vec::new(); for x in xs { v.push(g(x)); }`) → `xs.iter().map(g).collect::<Vec<_>>()`. With a filter → `.filter(...).map(...).collect()` or `.filter_map(...)`.
+  - **Building a `Result<Vec<_>, _>`** (loop body uses `?`) → `.map(...).collect::<Result<Vec<_>, _>>()` or `.try_fold`.
+  - **Flattening nested iteration** (nested `for` over `Vec<Vec<_>>` or `for x in xs { for y in x.ys() { ... } }`) → `.flat_map(...)` / `.flatten()`.
+  - **Conditionally pushing** (`if pred(x) { v.push(x) }`) → `.filter(pred).collect()` or `.filter(pred).cloned().collect()`.
+  - **Both filter and transform** (`if let Some(y) = f(x) { v.push(y) }`) → `.filter_map(f).collect()`.
+  - **Pure side effects** (`for x in xs { logger.log(x); }`) → `xs.iter().for_each(|x| logger.log(x))`. With `?` → `try_for_each`.
+  - **Finding the first match** (early `break` with a captured value) → `.find(...)` / `.find_map(...)` / `.position(...)`.
+  - **Boolean reductions** ("does anything match?" / "do all match?") → `.any(pred)` / `.all(pred)`. Not `fold`.
+  - **Min/max** → `.min()` / `.max()` / `.min_by_key(...)` / `.max_by(...)`.
+  - **Building a `HashMap`/`BTreeMap`** (`for (k, v) in pairs { map.insert(k, v); }`) → `pairs.into_iter().collect::<HashMap<_, _>>()`. Grouping → `.fold(HashMap::new(), |mut m, x| { m.entry(k(x)).or_default().push(x); m })`.
+  - **Parallel iteration over two collections** (`for i in 0..xs.len() { f(&xs[i], &ys[i]); }`) → `xs.iter().zip(&ys).for_each(...)`.
+  - **Windowed / pairwise access** (`for i in 1..xs.len() { f(&xs[i-1], &xs[i]); }`) → `xs.windows(2)` or `.tuple_windows()` (if `itertools` is a dep).
+  - **Index needed alongside value** → `.enumerate()`.
+  - **`itertools`-only constructs** (`group_by`, `chunks`, `tuple_windows`, `dedup_by`, `sorted`) — suggest **only if `itertools` is already in `Cargo.toml`** (same rule as R4: never recommend adding a dependency).
+- Only these exceptions skip the flag (state which one applies):
+  1. The loop body contains an early `break` with a value or a `return` that exits the *enclosing function* (not just the loop) — and the equivalent `find` / `find_map` / `position` rewrite is materially less readable.
+  2. The loop uses labeled `break`/`continue` across nested loops.
+  3. The iterand is `..` or `..=` over an integer range used purely for its index (e.g. `for i in 0..n { a[i] = b[i] + c[i]; }`) **and** the body indexes multiple independent collections in lockstep where `zip` would obscure intent.
+- "It's a hot path" is **not** an exception at review time — note the perf consideration alongside the rewrite and let the author decide; do not pre-suppress the finding.
+- Output for each occurrence: `file_path:line_number`, the original loop (1–3 lines), the iterator rewrite, and any allocation/perf note.
+- If after walking the diff there are genuinely zero `for` loops, write "No `for` loops in diff." — do not write "No findings" without first confirming you scanned for the token `for ` in `.rs` hunks.
 
 ### R2. Tests — no `.unwrap()`, return `Result`
 - Flag every `.unwrap()`, `.expect()`, or `panic!` inside `#[test]` / `#[tokio::test]` functions.
