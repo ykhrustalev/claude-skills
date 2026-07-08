@@ -42,12 +42,19 @@ Review each rule as a **separate pass** — do not interleave findings across ru
 - Do tests actually exercise the behavior being changed, or just call the code? Are there obvious cases missing?
 - Does the change match its stated intent (commit message, PR description, conversation)?
 
-### G4. Comments — concise and value-adding
-- Flag comments that restate what the code obviously does.
+### G4. Comments — only valuable, always concise
+- **Default: walk every comment added or changed in the diff and judge whether it earns its place.** A comment earns its place only if it says something the code cannot: *why* a choice was made, a non-obvious invariant, a subtle bug/workaround, a link to context, or a warning. Everything else is noise.
+- **Delete, don't keep, comments that repeat the code.** If the comment restates what the next line plainly does (`// increment counter` above `counter += 1`, `// return the result` above `return result`, a docstring that just re-spells the function signature), recommend removing it outright — a tighter rewrite is not the goal, absence is.
+- Flag redundant patterns aggressively:
+  - Comments that narrate the mechanics (`// loop over items`, `// check if empty`, `// set the flag to true`).
+  - Section-divider / step-label comments (`// Step 1:`, `// --- setup ---`) that only restate structure the code already shows.
+  - Docstrings and block comments that pad: restating parameter names, echoing the type signature, or describing obvious behavior across multiple lines.
+  - Commented-out code left in the diff — recommend deletion (version control is the archive).
 - Flag stale comments that no longer match the code, and TODO/FIXME left without context or owner.
-- Flag multi-line block comments and docstrings that pad without adding insight.
-- Keep comments that explain *why*, document non-obvious invariants, or warn about subtle bugs/workarounds.
-- For each occurrence: cite the line and either propose a tighter rewrite or recommend deletion.
+- **Concision applies even to valuable comments.** A comment that says something real but says it in three sentences where one would do should be flagged with a tighter rewrite.
+- Keep (do not flag) comments that explain *why*, document a non-obvious invariant, warn about a subtle bug/workaround, or capture context the reader could not recover from the code alone.
+- Output for each occurrence: `file_path:line_number`, the comment, and the verdict — **delete** (with a one-line reason it adds nothing) or **rewrite** (with the tighter replacement).
+- If after walking the diff every comment earns its place, write "All comments add value." — do not write "No findings" without confirming you scanned each added/changed comment.
 
 ---
 
