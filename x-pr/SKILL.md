@@ -1,27 +1,25 @@
 ---
 name: x-pr
-description: Generate a standardized commit message for the pending change with a Conventional Commits prefix (feat:/fix:/etc.), a concise headline, and a description grounded in the actual diff. References a ticket if one appeared in the conversation. Use when the user asks for an x-pr, or invokes /x-pr.
+description: Take the pending change to an open PR — put it on a correctly-named branch, commit it with a Conventional Commits message (feat:/fix:/etc.) grounded in the actual diff, push, and create or update the GitHub PR. References a ticket if one appeared in the conversation. Use when the user asks for an x-pr, or invokes /x-pr.
 ---
 
 # x-pr
 
-Produce a single, well-formed commit message for the current change and either create or update the PR on GitHub. Do **not** run `git commit` (the user controls local commits) — but **do** run `gh pr create` / `gh pr edit` without prompting once the branch is ready.
+Take the pending change all the way to an open PR: create the branch, commit the change, push, and create (or update) the PR on GitHub. The invocation of `/x-pr` is the green light — run every git and `gh` command below **without asking for confirmation**. Only stop when human judgment is genuinely required (merge conflicts).
+
+**This skill is idempotent — it is safe to re-run.** The change may already be committed, already pushed, and already have a PR (e.g. a prior `/x-pr` run, or CI auto-created the PR). Each step below detects what is already done and does only the remaining work, converging on the same standardized result. The three states you'll encounter:
+- **Nothing done yet** — uncommitted work, no branch, no PR → run the full flow.
+- **Partially done** — committed and/or pushed, but the message or PR isn't standardized, or there are new tweaks on top → commit the new tweaks, re-standardize, update the PR.
+- **Already standardized** — commit message and PR already match this skill's format, nothing new to add → confirm the PR URL and stop; make no empty commit and no no-op edit.
 
 ## Steps
 
-1. **Sync with `origin/main` first.** The branch must be up-to-date with fresh `origin/main` before producing the commit message or editing a PR:
-   - `git fetch origin main` to get the latest.
-   - Check `git rev-list --left-right --count origin/main...HEAD` — if `origin/main` has commits the branch doesn't have, the branch is behind.
-   - If behind, propose one of:
-     - `git rebase origin/main` (preferred — keeps history linear), or
-     - `git merge origin/main` (when the branch is shared and rewriting history would break collaborators).
-   - Show the command, explain which to pick based on whether the branch is shared (has been pushed and others may have pulled it), and **stop** until the user has integrated. Do not auto-run rebase or merge — these can produce conflicts that need human judgment.
-   - If conflicts surface, surface them and stop; do not resolve speculatively.
-2. Inspect the change:
+1. Inspect the change first so later steps have what they need:
    - `git status` (no `-uall`)
-   - `git diff` (staged + unstaged)
+   - `git diff HEAD` (staged + unstaged; falls back to `git diff` if there is no commit yet)
    - `git log -n 5 --oneline` to match repo style if it's distinctive
-3. Identify the dominant intent of the change and pick **one** Conventional Commits prefix:
+   - If there is **nothing to commit and no unpushed commits**, there is no change to PR — say so and stop.
+2. Identify the dominant intent of the change and pick **one** Conventional Commits prefix:
    - `feat:` — new user-visible capability
    - `fix:` — corrects broken behavior
    - `refactor:` — restructure without behavior change
@@ -31,20 +29,30 @@ Produce a single, well-formed commit message for the current change and either c
    - `chore:` — tooling, deps, build, non-functional
    - `revert:` — reverts a prior commit
    When in doubt between `feat` and `refactor`, ask: does an external observer see a difference? If yes → `feat`.
-4. Scan the conversation history for a ticket reference (e.g. `ABC-123`, `#456`, `JIRA-789`, a URL containing an issue id). If found, include it. If not, omit — never invent one.
-5. Check the branch name with `git rev-parse --abbrev-ref HEAD`. It **must** match `ykhrustalev/<slug>`:
-   - `<slug>` is kebab-case, derived from the headline (or the ticket id when present, e.g. `ykhrustalev/abc-123-add-retry-backoff`).
-   - If the current branch is `main`, `master`, or doesn't match the pattern, propose a rename command and **stop** before producing the commit message:
-     `git switch -c ykhrustalev/<slug>` (if on main/master) or `git branch -m ykhrustalev/<slug>` (to rename current).
-   - Do not run the rename automatically — show the command and let the user run it.
-   - Once the branch is correctly named, continue to the output step.
-6. Ensure the branch is pushed: `git push -u origin HEAD` (use `--force-with-lease` if the prior step rebased). Required so a PR can be opened against it.
-7. Check whether a PR already exists for this branch with `gh pr view --json number,title,body,headRefName 2>/dev/null`.
-   - **If a PR exists**, treat it as auto-created and **fix it in place**: update title and body to the standardized format using `gh pr edit <number> --title "..." --body "..."`. Run this without asking.
-   - **If no PR exists**, **create one without asking** using `gh pr create --title "..." --body "..."`. Do not stop to confirm — the user invoked `/x-pr`, that is the confirmation.
+3. Scan the conversation history for a ticket reference (e.g. `ABC-123`, `#456`, `JIRA-789`, a URL containing an issue id). If found, include it. If not, omit — never invent one.
+4. Compose the commit message now (see "Output format" below). The headline drives the branch slug, the commit, and the PR title.
+5. **Put the change on a correctly-named branch.** Check the current branch with `git rev-parse --abbrev-ref HEAD`. It **must** match `ykhrustalev/<slug>`, where `<slug>` is kebab-case derived from the headline (or the ticket id when present, e.g. `ykhrustalev/abc-123-add-retry-backoff`). Run the fix yourself — do not stop to ask:
+   - On `main`/`master` (or any branch not matching the pattern) with uncommitted work: `git switch -c ykhrustalev/<slug>` to carry the change onto a fresh branch.
+   - On a misnamed branch whose commits are already yours: `git branch -m ykhrustalev/<slug>` to rename in place.
+   - If already on a valid `ykhrustalev/<slug>` branch, leave it.
+6. **Commit the change** — pick the case that matches the current state:
+   - **Uncommitted work exists** → stage and commit: `git add -A`, then `git commit -m "..." -m "..."` (headline as the first `-m`, description as the second).
+     - If there are *also* prior commits on the branch for this same change, prefer folding the new work in over stacking a stray commit: `git commit --amend` (or `--fixup` + autosquash) when the branch's commits are the standardized change and the new work is a tweak to it. Amending an already-pushed commit means step 8 pushes with `--force-with-lease`.
+   - **Working tree clean, branch has commits already** → nothing new to stage. Check whether the existing commit message matches this skill's format (`git log -1 --pretty=%B`). If it doesn't (missing prefix, wrong shape, mentions AI, etc.), re-standardize it with `git commit --amend -m "..." -m "..."`; step 8 will `--force-with-lease`. If it already matches, leave the commit untouched.
+   - **Working tree clean and the commit already matches** → do nothing here; make no empty commit.
+   - Never add a `Co-Authored-By` trailer for Claude/AI, and never mention Claude or this skill in the message.
+7. **Sync with `origin/main`.** Keep the branch current before pushing:
+   - `git fetch origin main`.
+   - `git rev-list --left-right --count origin/main...HEAD` — if `origin/main` is ahead, the branch is behind.
+   - If behind, run `git rebase origin/main` (preferred — linear history). Use `git merge origin/main` instead **only** if the branch is already shared (pushed and others may have pulled it), since rebasing rewrites history.
+   - **If conflicts surface, stop and surface them** — do not resolve speculatively. This is the one place that needs human judgment.
+8. **Push the branch:** `git push -u origin HEAD`. Use `--force-with-lease` if step 6 or 7 rewrote history (amend/rebase). If the branch is already fully pushed and nothing changed, the push is a harmless no-op — that's fine.
+9. **Create or update the PR.** Check for an existing one with `gh pr view --json number,title,body,url,headRefName 2>/dev/null`.
+   - **If no PR exists**, **create one**: `gh pr create --title "..." --body "..."`.
+   - **If a PR exists**, compare its current title/body to the standardized ones. If either differs, **fix it in place**: `gh pr edit <number> --title "..." --body "..."`. If both already match, skip the edit — don't churn the PR with an identical update.
    - The PR title uses the `<prefix>: <headline> [(<ticket>)]` format from the commit headline.
    - The PR body must be **as concise as the commit description**. See "PR body rules" below.
-   - After running, print the resulting PR URL.
+   - Always print the resulting PR URL at the end, whether it was created, edited, or already up to date.
 
 ## PR body rules
 
@@ -156,5 +164,5 @@ chore: bump ruff to 0.6.9
 - Restating the diff line-by-line.
 - "Co-Authored-By" trailers. **Never** add Claude (or any AI) as a co-author. Only include human co-authors if the user explicitly names them.
 - Any mention of Claude, the chat session, the prompt, this skill, or AI involvement — in commit messages, PR titles, PR bodies, or anywhere else this skill produces output. The work must look human-authored.
-- Running `git commit` — local commits are the user's job.
-- Asking "want me to run that?" before `gh pr create` / `gh pr edit`. Just run it. The invocation of `/x-pr` is the green light.
+- Asking "want me to run that?" before any of the git/`gh` steps. Just run them — creating the branch, committing, pushing, and opening the PR are all part of the job. The invocation of `/x-pr` is the green light.
+- Force-pushing without `--force-with-lease`, or resolving rebase/merge conflicts speculatively. Conflicts are the one place to stop and hand back to the user.
