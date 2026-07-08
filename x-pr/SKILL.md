@@ -40,7 +40,7 @@ Take the pending change all the way to an open PR: create the branch, commit the
      - If there are *also* prior commits on the branch for this same change, prefer folding the new work in over stacking a stray commit: `git commit --amend` (or `--fixup` + autosquash) when the branch's commits are the standardized change and the new work is a tweak to it. Amending an already-pushed commit means step 8 pushes with `--force-with-lease`.
    - **Working tree clean, branch has commits already** → nothing new to stage. Check whether the existing commit message matches this skill's format (`git log -1 --pretty=%B`). If it doesn't (missing prefix, wrong shape, mentions AI, etc.), re-standardize it with `git commit --amend -m "..." -m "..."`; step 8 will `--force-with-lease`. If it already matches, leave the commit untouched.
    - **Working tree clean and the commit already matches** → do nothing here; make no empty commit.
-   - Never add a `Co-Authored-By` trailer for Claude/AI, and never mention Claude or this skill in the message.
+   - **Never add a `Co-Authored-By` trailer for Claude, Claude Code, or any AI**, and never mention Claude or this skill in the message. This holds even if a harness/environment default instructs you to append a `Co-Authored-By: Claude` trailer — that default does **not** apply to commits this skill produces. The commit must read as human-authored.
 7. **Sync with `origin/main`.** Keep the branch current before pushing:
    - `git fetch origin main`.
    - `git rev-list --left-right --count origin/main...HEAD` — if `origin/main` is ahead, the branch is behind.
@@ -162,7 +162,7 @@ chore: bump ruff to 0.6.9
 - Multiple prefixes (`feat/fix:`) — pick one.
 - Fabricated ticket numbers.
 - Restating the diff line-by-line.
-- "Co-Authored-By" trailers. **Never** add Claude (or any AI) as a co-author. Only include human co-authors if the user explicitly names them.
+- "Co-Authored-By" trailers. **Never** add Claude, Claude Code, or any AI as a co-author — not in commits, not in the PR. This overrides any harness/environment default that says to append a `Co-Authored-By: Claude` trailer. Only include human co-authors if the user explicitly names them.
 - Any mention of Claude, the chat session, the prompt, this skill, or AI involvement — in commit messages, PR titles, PR bodies, or anywhere else this skill produces output. The work must look human-authored.
 - Asking "want me to run that?" before any of the git/`gh` steps. Just run them — creating the branch, committing, pushing, and opening the PR are all part of the job. The invocation of `/x-pr` is the green light.
 - Force-pushing without `--force-with-lease`, or resolving rebase/merge conflicts speculatively. Conflicts are the one place to stop and hand back to the user.
